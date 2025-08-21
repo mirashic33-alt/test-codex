@@ -242,7 +242,7 @@
 
       <div class="controls">
         <div class="btn" id="back" title="Назад 10с">⏪</div>
-        <div class="btn primary" id="play" title="Play/Pause">▶</div>
+        <div class="btn primary" id="playPause" title="Play/Pause">▶</div>
         <div class="btn" id="next" title="Вперёд 10с">⏩</div>
       </div>
 
@@ -257,7 +257,7 @@
   const localEl  = document.getElementById('audio');
   const radioEl  = document.getElementById('radioEl');
   const fileInput = document.getElementById('fileInput');
-  const playBtn  = document.getElementById('play');
+  const playPauseBtn  = document.getElementById('playPause');
   const backBtn  = document.getElementById('back');
   const nextBtn  = document.getElementById('next');
   const curEl    = document.getElementById('cur');
@@ -402,12 +402,12 @@
   }
 
   function activeEl(){ return isRadio ? radioEl : localEl; }
-  playBtn.addEventListener('click', async () => {
+  playPauseBtn.addEventListener('click', async () => {
     const el = activeEl();
     if (!el.src) return;
     if (!isRadio){ ensureContext(); if(audioCtx) await audioCtx.resume(); }
-    if (el.paused){ el.play().then(()=>{ playBtn.textContent='⏸'; startDraw(); }).catch(()=>{}); }
-    else { el.pause(); playBtn.textContent='▶'; stopDraw(); }
+    if (el.paused){ el.play().then(()=>{ playPauseBtn.textContent='⏸'; startDraw(); }).catch(()=>{}); }
+    else { el.pause(); playPauseBtn.textContent='▶'; stopDraw(); }
   });
   backBtn.addEventListener('click', () => { if (!isRadio && localEl.src) localEl.currentTime = Math.max(0, localEl.currentTime - 10); });
   nextBtn.addEventListener('click', () => { if (!isRadio && localEl.src) localEl.currentTime = Math.min(localEl.duration || localEl.currentTime+10, localEl.currentTime + 10); });
@@ -426,11 +426,11 @@
       seek.max = Math.max(0, localEl.duration || 0).toFixed(1);
       seek.value = 0;
     };
-    playBtn.textContent = '▶';
+    playPauseBtn.textContent = '▶';
     stopDraw();
     if (radioEl.src) { radioEl.pause(); }
   });
-  localEl.addEventListener('ended', () => { playBtn.textContent='▶'; stopDraw(); });
+  localEl.addEventListener('ended', () => { playPauseBtn.textContent='▶'; stopDraw(); });
 
   seek.addEventListener('input', () => { isSeeking = true; });
   seek.addEventListener('change', () => {
@@ -481,10 +481,10 @@
       if (localEl.src){ localEl.pause(); }
       radioEl.src = url;
       radioEl.play().then(()=>{
-        playBtn.textContent='⏸'; startDraw();
+        playPauseBtn.textContent='⏸'; startDraw();
       }).catch(err=>{
         console.warn('Не удалось начать воспроизведение:', err);
-        playBtn.textContent='▶';
+        playPauseBtn.textContent='▶';
       });
       toggleDropdown(false);
     });
