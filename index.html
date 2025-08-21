@@ -250,7 +250,7 @@
       <div class="nav"><div class="dots"><span class="dot-sm active"></span><span class="dot-sm"></span><span class="dot-sm"></span></div><span style="opacity:.7">v1.0 Dual-Viz</span></div>
 
       <audio id="audio" preload="metadata" style="display:none"></audio>
-      <audio id="radioEl" preload="none" crossorigin="anonymous"></audio>
+      <audio id="radioEl" preload="none"></audio>
     </div>
   </main>
 <script>
@@ -273,32 +273,24 @@
 
   let isSeeking = false;
   let isRadio   = false;
+  let radioVizMode = 'pulse'; // 'pulse' или 'techno'
 
   const BAR_COUNT = 48;
   for (let i=0;i<BAR_COUNT;i++){ const b=document.createElement('div'); b.className='bar'; viz.appendChild(b); }
   const bars = Array.from(document.querySelectorAll('.bar'));
-  let audioCtx, analyser, localSrcNode, radioSrcNode, dataArray, rafId;
+  let audioCtx, analyser, srcNode, dataArray, rafId;
 
-  function ensureContext(el){
+  function ensureContext(){
     if (!audioCtx){
       try{
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = 2048;
         dataArray = new Uint8Array(analyser.frequencyBinCount);
-        analyser.connect(audioCtx.destination);
+        srcNode = audioCtx.createMediaElementSource(localEl);
+        srcNode.connect(analyser); analyser.connect(audioCtx.destination);
       }catch(e){ console.warn('WebAudio недоступен:', e); }
     }
-    if (!audioCtx || !el) return;
-    try{
-      if (el === localEl && !localSrcNode){
-        localSrcNode = audioCtx.createMediaElementSource(localEl);
-        localSrcNode.connect(analyser);
-      } else if (el === radioEl && !radioSrcNode){
-        radioSrcNode = audioCtx.createMediaElementSource(radioEl);
-        radioSrcNode.connect(analyser);
-      }
-    }catch(e){ console.warn('WebAudio источник недоступен:', e); }
   }
   function fmt(t){ if (!isFinite(t)) return '00:00'; const m=Math.floor(t/60), s=Math.floor(t%60); return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0'); }
   function levelFromFreq(bytes){
@@ -329,7 +321,8 @@
   }
 
   function draw(){
-    if (analyser){
+    if (!isRadio && analyser){
+      viz.style.setProperty('--bar-hue', '35'); // Для локальных файлов всегда оранжевый
       analyser.getByteFrequencyData(dataArray);
       const step = Math.floor(dataArray.length / BAR_COUNT);
       for (let i=0;i<BAR_COUNT;i++){
@@ -339,12 +332,59 @@
       }
       const lvl = levelFromFreq(dataArray);
       setPulse(lvl);
-    }
-    if (!isRadio){
       curEl.textContent = fmt(localEl.currentTime);
       durEl.textContent = fmt(localEl.duration);
       if (!isSeeking && isFinite(localEl.duration)) seek.value = localEl.currentTime.toFixed(1);
-    } else {
+    
+    } else if (isRadio) {
+      if (radioVizMode === 'pulse') {
+        // === Визуализация "Пульс с пиками" ===
+        const time = Date.now();
+        const center = (BAR_COUNT - 1) / 2;
+        const env = (Math.sin(time / 500) * 0.5 + 0.5);
+        const peak1Cycle = time / 3500;
+        const peak1Pos = (Math.sin(peak1Cycle) * 0.5 + 0.5) * (BAR_COUNT - 1);
+        const peak1Width = 4.0;
+        const peak1Boost = 0.6;
+        const peak2Cycle = time / 5200;
+        const peak2Pos = (1.0 - (Math.cos(peak2Cycle) * 0.5 + 0.5)) * (BAR_COUNT - 1);
+        const peak2Width = 5.0;
+        const peak2Boost = 0.45;
+        let sumH = 0;
+        for (let i = 0; i < BAR_COUNT; i++) {
+          const dist = Math.abs(i - center);
+          const fall = Math.pow(1 - Math.min(1, dist/center), 1.25);
+          const jitter = Math.sin(time/110 + i*0.45) * 0.05;
+          let h = 10 + (env + jitter) * 80 * fall;
+          let totalPeakBoost = 0;
+          const distToPeak1 = Math.abs(i - peak1Pos);
+          if (distToPeak1 < peak1Width) {
+              const influence = 1 - distToPeak1 / peak1Width;
+              totalPeakBoost += peak1Boost * Math.pow(influence, 2);
+          }
+          const distToPeak2 = Math.abs(i - peak2Pos);
+          if (distToPeak2 < peak2Width) {
+              const influence = 1 - distToPeak2 / peak2Width;
+              totalPeakBoost += peak2Boost * Math.pow(influence, 2);
+          }
+          h += env * 90 * totalPeakBoost;
+          h = Math.max(8, Math.min(100, h));
+          bars[i].style.height = h + '%';
+          sumH += h;
+        }
+        setPulse(sumH / (BAR_COUNT * 100));
+
+      } else { // radioVizMode === 'techno'
+        // === Визуализация "Техно" ===
+        let sumH = 0;
+        for (let i = 0; i < BAR_COUNT; i++) {
+          const h = 10 + Math.random() * 50;
+          bars[i].style.height = h + '%';
+          sumH += h;
+        }
+        setPulse(sumH / (BAR_COUNT * 100));
+      }
+
       curEl.textContent = 'LIVE';
       durEl.textContent = '— —';
     }
@@ -366,8 +406,7 @@
   playPauseBtn.addEventListener('click', async () => {
     const el = activeEl();
     if (!el.src) return;
-    ensureContext(el);
-    if(audioCtx) await audioCtx.resume();
+    if (!isRadio){ ensureContext(); if(audioCtx) await audioCtx.resume(); }
     if (el.paused){ el.play().then(()=>{ playPauseBtn.textContent='⏸'; startDraw(); }).catch(()=>{}); }
     else { el.pause(); playPauseBtn.textContent='▶'; stopDraw(); }
   });
@@ -421,26 +460,36 @@
   });
   document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') toggleDropdown(false); });
 
-    dropdown.querySelectorAll('.station-item').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const url = btn.dataset.url;
-        const name = btn.childNodes[0].textContent.trim();
-
-        setModeRadio(true);
-        titleEl.textContent = name + ' • LIVE';
-        if (localEl.src){ localEl.pause(); }
-        radioEl.src = url;
-        ensureContext(radioEl);
-        try{ if(audioCtx) await audioCtx.resume(); }catch(e){}
-        radioEl.play().then(()=>{
-          playPauseBtn.textContent='⏸'; startDraw();
-        }).catch(err=>{
-          console.warn('Не удалось начать воспроизведение:', err);
-          playPauseBtn.textContent='▶';
-        });
-        toggleDropdown(false);
+  dropdown.querySelectorAll('.station-item').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const url = btn.dataset.url;
+      const name = btn.childNodes[0].textContent.trim();
+      
+      // Случайный выбор визуализации для радио
+      radioVizMode = Math.random() < 0.5 ? 'pulse' : 'techno';
+      
+      let chosenHue;
+      if (radioVizMode === 'techno') {
+        const colorHues = [35, 200]; // Оранжевый, Синий для "техно"
+        chosenHue = colorHues[Math.floor(Math.random() * colorHues.length)];
+      } else {
+        chosenHue = 35; // Для "пульса" всегда оранжевый
+      }
+      viz.style.setProperty('--bar-hue', chosenHue);
+      
+      setModeRadio(true);
+      titleEl.textContent = name + ' • LIVE';
+      if (localEl.src){ localEl.pause(); }
+      radioEl.src = url;
+      radioEl.play().then(()=>{
+        playPauseBtn.textContent='⏸'; startDraw();
+      }).catch(err=>{
+        console.warn('Не удалось начать воспроизведение:', err);
+        playPauseBtn.textContent='▶';
       });
+      toggleDropdown(false);
     });
+  });
 })();
 </script>
 </body>
